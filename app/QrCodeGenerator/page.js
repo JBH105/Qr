@@ -51,133 +51,157 @@ EOF
 
 function QrCodeGenerator({ toggleModal }) {
   const [prefix, setPrefix] = useState("");
-  const [count, setCount] = useState(0);
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
   const [generatedItems, setGeneratedItems] = useState([]);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const generateItems = () => {
+    setIsGenerating(true);
     const items = [];
-    for (let i = 1; i <= count; i++) {
-      items.push(`${prefix}${i}`);
+    const startNum = Math.max(0, parseInt(start) || 0);
+    const endNum = Math.max(0, parseInt(end) || 0);
+
+    if (startNum <= endNum && startNum >= 0) {
+      for (let i = startNum; i <= endNum; i++) {
+        items.push(`${prefix}${i}`);
+      }
     }
     setGeneratedItems(items);
+    setTimeout(() => setIsGenerating(false), 300);
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = () => window.print();
 
   const handleSave = () => {
     const canvasElements = document.getElementsByTagName("canvas");
     if (canvasElements.length > 0 && generatedItems.length > 0) {
       generatedItems.forEach((item, index) => {
         const link = document.createElement("a");
-        // Generate filename with prefix and number
         link.download = `${item}.dxf`;
-        
-        // Create QR data for single QR code
         const qrData = [{ x: 0, y: 0 }];
         const dxfContent = generateDXF(qrData, 128, item);
         const blob = new Blob([dxfContent], { type: "application/dxf" });
         link.href = URL.createObjectURL(blob);
         link.click();
-        
-        // Clean up
         URL.revokeObjectURL(link.href);
       });
     }
   };
 
   return (
-    <>
-      <div className="fixed inset-0 bg-gray-200 bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg p-6 w-screen h-screen m-4">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold text-gray-800">
-              Generate QR Codes
-            </h2>
-            <button
-              onClick={toggleModal}
-              className="text-gray-500 hover:text-gray-700 text-2xl"
-            >
-              ×
-            </button>
-          </div>
+    <div className="fixed inset-0 bg-gray-200 bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl p-6 w-full max-h-[90vh] flex flex-col shadow-2xl">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6 border-b pb-4">
+          <h2 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+            QR Code Generator
+          </h2>
+          <button
+            onClick={toggleModal}
+            className="text-gray-500 hover:text-gray-800 text-3xl transition-colors duration-200 hover:rotate-90"
+          >
+            ×
+          </button>
+        </div>
 
-          <div className="flex items-end space-x-4 mb-6">
+        {/* Input Section */}
+        <div className="flex flex-col sm:flex-row items-end gap-4 mb-6">
+          <div className="flex-1 w-full">
+            <label className="block text-gray-700 font-medium mb-2">
+              Prefix
+            </label>
+            <input
+              type="text"
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value)}
+              placeholder="Enter prefix (e.g., xyz)"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200 hover:border-indigo-400"
+            />
+          </div>
+          <div className="flex-1 flex gap-4 w-full">
             <div className="flex-1">
-              <label className="block text-gray-700 mb-1">Prefix</label>
-              <input
-                type="text"
-                value={prefix}
-                onChange={(e) => setPrefix(e.target.value)}
-                placeholder="Enter prefix (e.g., xyz)"
-                className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-gray-700 mb-1">Count</label>
+              <label className="block text-gray-700 font-medium mb-2">
+                Start
+              </label>
               <input
                 type="number"
-                value={count}
-                onChange={(e) =>
-                  setCount(Math.max(0, parseInt(e.target.value) || 0))
-                }
-                placeholder="Enter number"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+                placeholder="e.g., 21"
                 min="0"
-                className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200 hover:border-indigo-400"
               />
             </div>
-            <button
-              onClick={generateItems}
-              className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors duration-200 h-[42px] mb-0"
-            >
-              Generate
-            </button>
-          </div>
-
-          {/* Generated QR Codes */}
-          {generatedItems.length > 0 && (
-            <div className="mb-6">
-              <div className="max-h-[480px] overflow-y-auto">
-                <div className="grid grid-cols-[repeat(auto-fit,minmax(164px,1fr))] gap-4">
-                  {generatedItems.map((item, index) => (
-                    <div key={index} className="flex flex-col items-center">
-                      <p className="text-gray-600 mb-2 text-sm truncate w-full text-center">
-                        {item}
-                      </p>
-                      <div className="p-2 border-2 border-gray-300 rounded-lg">
-                        <QRCodeCanvas value={item} size={128} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+            <div className="flex-1">
+              <label className="block text-gray-700 font-medium mb-2">
+                End
+              </label>
+              <input
+                type="number"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+                placeholder="e.g., 30"
+                min="0"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200 hover:border-indigo-400"
+              />
             </div>
-          )}
+          </div>
+          <button
+            onClick={generateItems}
+            disabled={isGenerating}
+            className={`px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:from-green-600 hover:to-emerald-600 transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {isGenerating ? "Generating..." : "Generate"}
+          </button>
+        </div>
 
-          <div className="flex justify-end space-x-2 absolute bottom-6 right-6">
+        {/* Generated Items Section */}
+        {generatedItems.length > 0 && (
+          <div className="flex-1 overflow-y-auto max-h-[60vh] pr-2 -mr-2 scrollbar-thin scrollbar-thumb-indigo-300 scrollbar-track-gray-100">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {generatedItems.map((item, index) => (
+                <div
+                  key={index}
+                  className="group flex items-center p-4 bg-gradient-to-br from-indigo-50 via-white to-purple-50 border border-indigo-200 rounded-xl shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
+                >
+                  <p className="text-indigo-900 text-sm font-medium flex-1 break-words pr-4 leading-relaxed">
+                    {item}
+                  </p>
+                  <div className="relative">
+                    <QRCodeCanvas
+                      value={item}
+                      size={100}
+                      className="rounded-md shadow-sm transition-transform duration-300 group-hover:scale-110"
+                      bgColor="#ffffff"
+                      fgColor="#4f46e5"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        {generatedItems.length > 0 && (
+          <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
             <button
               onClick={handleSave}
-              className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors duration-200"
+              className="px-6 py-2 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-lg hover:from-yellow-600 hover:to-amber-600 transition-all duration-200 transform hover:scale-105"
             >
-              Save
+              Save All
             </button>
             <button
               onClick={handlePrint}
-              className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors duration-200"
+              className="px-6 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-lg hover:from-purple-600 hover:to-indigo-600 transition-all duration-200 transform hover:scale-105"
             >
-              Print
+              Print All
             </button>
-            {/* <button
-              onClick={toggleModal}
-              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors duration-200"
-            >
-              Close
-            </button> */}
           </div>
-        </div>
+        )}
       </div>
-    </>
+    </div>
   );
 }
 
