@@ -4,11 +4,49 @@ import QrCodeGenerator from "./QrCodeGenerator/page";
 import { QRCodeCanvas } from "qrcode.react";
 import opentype from "opentype.js";
 
-function flattenContour(path, steps = 32) {
+function flattenContour(path, tolerance = 0.5) {
   const contours = [];
   let contour = [];
   let cx = 0,
     cy = 0;
+
+  function flattenBezier(x0, y0, x1, y1, x2, y2, x3, y3, level = 0) {
+    if (level > 10) return;
+
+    const dx = x3 - x0;
+    const dy = y3 - y0;
+    const d =
+      Math.abs(
+        (x1 - x3) * dy -
+          (y1 - y3) * dx +
+          (x3 * y0 - y3 * x0) +
+          (x0 * y2 - y0 * x2)
+      ) /
+      (2 * Math.sqrt(dx * dx + dy * dy));
+
+    if (d < tolerance) {
+      contour.push([x3, y3]);
+      return;
+    }
+
+    const m1x = (x0 + x1) / 2;
+    const m1y = (y0 + y1) / 2;
+    const m2x = (x1 + x2) / 2;
+    const m2y = (y1 + y2) / 2;
+    const m3x = (x2 + x3) / 2;
+    const m3y = (y2 + y3) / 2;
+
+    const m12x = (m1x + m2x) / 2;
+    const m12y = (m1y + m2y) / 2;
+    const m23x = (m2x + m3x) / 2;
+    const m23y = (m2y + m3y) / 2;
+
+    const mx = (m12x + m23x) / 2;
+    const my = (m12y + m23y) / 2;
+
+    flattenBezier(x0, y0, m1x, m1y, m12x, m12y, mx, my, level + 1);
+    flattenBezier(mx, my, m23x, m23y, m3x, m3y, x3, y3, level + 1);
+  }
 
   for (const cmd of path.commands) {
     if (cmd.type === "M") {
@@ -24,29 +62,25 @@ function flattenContour(path, steps = 32) {
       cy = cmd.y;
       contour.push([cx, cy]);
     } else if (cmd.type === "Q") {
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        const x = (1 - t) ** 2 * cx + 2 * (1 - t) * t * cmd.x1 + t ** 2 * cmd.x;
-        const y = (1 - t) ** 2 * cy + 2 * (1 - t) * t * cmd.y1 + t ** 2 * cmd.y;
-        contour.push([x, y]);
-      }
+      const x0 = cx,
+        y0 = cy,
+        x1 = cmd.x1,
+        y1 = cmd.y1,
+        x2 = cmd.x,
+        y2 = cmd.y;
+      flattenBezier(x0, y0, x1, y1, x2, y2, x2, y2);
       cx = cmd.x;
       cy = cmd.y;
     } else if (cmd.type === "C") {
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        const x =
-          (1 - t) ** 3 * cx +
-          3 * (1 - t) ** 2 * t * cmd.x1 +
-          3 * (1 - t) * t ** 2 * cmd.x2 + 
-          t ** 3 * cmd.x;
-        const y =
-          (1 - t) ** 3 * cy +
-          3 * (1 - t) ** 2 * t * cmd.y1 +
-          3 * (1 - t) * t ** 2 * cmd.y2 +
-          t ** 3 * cmd.y;
-        contour.push([x, y]);
-      }
+      const x0 = cx,
+        y0 = cy,
+        x1 = cmd.x1,
+        y1 = cmd.y1,
+        x2 = cmd.x2,
+        y2 = cmd.y2,
+        x3 = cmd.x,
+        y3 = cmd.y;
+      flattenBezier(x0, y0, x1, y1, x2, y2, x3, y3);
       cx = cmd.x;
       cy = cmd.y;
     } else if (cmd.type === "Z") {
@@ -81,10 +115,10 @@ function getBoundingBox(contours) {
 }
 
 export const generateDXF = async (value, moduleSize, itemName) => {
-  const font = await opentype.load("/fonts/Roboto-Regular.ttf");
+  const font = await opentype.load("/fonts/RobotoMono-Regular.ttf");
   const fontSize = 1000;
   const path = font.getPath(itemName, 0, 0, fontSize);
-  const contours = flattenContour(path, 32); // High resolution
+  const contours = flattenContour(path);
   const bbox = getBoundingBox(contours);
 
   const offsetX = -bbox.minX;
