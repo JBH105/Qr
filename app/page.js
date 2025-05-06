@@ -2,129 +2,33 @@
 import { useState } from "react";
 import QrCodeGenerator from "./QrCodeGenerator/page";
 import { QRCodeCanvas } from "qrcode.react";
-import opentype from "opentype.js";
+import QRCode from "qrcode";
 
-function flattenContour(path, tolerance = 0.5) {
-  const contours = [];
-  let contour = [];
-  let cx = 0,
-    cy = 0;
+export const generateDXF = async (itemName, qrCodeData) => {
+  const containerWidth = 500;
+  const containerHeight = 128;
 
-  function flattenBezier(x0, y0, x1, y1, x2, y2, x3, y3, level = 0) {
-    if (level > 10) return;
+  const fontHeight = 80;
+  const textWidth = itemName.length * (fontHeight * 0.9); 
 
-    const dx = x3 - x0;
-    const dy = y3 - y0;
-    const d =
-      Math.abs(
-        (x1 - x3) * dy -
-          (y1 - y3) * dx +
-          (x3 * y0 - y3 * x0) +
-          (x0 * y2 - y0 * x2)
-      ) /
-      (2 * Math.sqrt(dx * dx + dy * dy));
+  const qrSize = qrCodeData ? qrCodeData.length : 0;
+  const qrModuleSize = 1.5;
+  const qrWidth = qrSize * qrModuleSize;
+  const qrHeight = qrSize * qrModuleSize;
 
-    if (d < tolerance) {
-      contour.push([x3, y3]);
-      return;
-    }
+  const totalContentWidth = textWidth + 20 + qrWidth;
+  const paddingX = (containerWidth - totalContentWidth) / 2;
 
-    const m1x = (x0 + x1) / 2;
-    const m1y = (y0 + y1) / 2;
-    const m2x = (x1 + x2) / 2;
-    const m2y = (y1 + y2) / 2;
-    const m3x = (x2 + x3) / 2;
-    const m3y = (y2 + y3) / 2;
+  const posX = paddingX;
+  const containerCenterY = containerHeight / 2;
+  const textCenterY = fontHeight / 2;
+  const posY = containerCenterY - textCenterY;
 
-    const m12x = (m1x + m2x) / 2;
-    const m12y = (m1y + m2y) / 2;
-    const m23x = (m2x + m3x) / 2;
-    const m23y = (m2y + m3y) / 2;
+  const qrX = posX + textWidth + 20;
+  const qrCenterY = qrHeight / 2;
+  const qrY = containerCenterY - qrCenterY;
 
-    const mx = (m12x + m23x) / 2;
-    const my = (m12y + m23y) / 2;
-
-    flattenBezier(x0, y0, m1x, m1y, m12x, m12y, mx, my, level + 1);
-    flattenBezier(mx, my, m23x, m23y, m3x, m3y, x3, y3, level + 1);
-  }
-
-  for (const cmd of path.commands) {
-    if (cmd.type === "M") {
-      if (contour.length > 0) {
-        contours.push(contour);
-        contour = [];
-      }
-      cx = cmd.x;
-      cy = cmd.y;
-      contour.push([cx, cy]);
-    } else if (cmd.type === "L") {
-      cx = cmd.x;
-      cy = cmd.y;
-      contour.push([cx, cy]);
-    } else if (cmd.type === "Q") {
-      const x0 = cx,
-        y0 = cy,
-        x1 = cmd.x1,
-        y1 = cmd.y1,
-        x2 = cmd.x,
-        y2 = cmd.y;
-      flattenBezier(x0, y0, x1, y1, x2, y2, x2, y2);
-      cx = cmd.x;
-      cy = cmd.y;
-    } else if (cmd.type === "C") {
-      const x0 = cx,
-        y0 = cy,
-        x1 = cmd.x1,
-        y1 = cmd.y1,
-        x2 = cmd.x2,
-        y2 = cmd.y2,
-        x3 = cmd.x,
-        y3 = cmd.y;
-      flattenBezier(x0, y0, x1, y1, x2, y2, x3, y3);
-      cx = cmd.x;
-      cy = cmd.y;
-    } else if (cmd.type === "Z") {
-      if (
-        contour.length &&
-        (contour[0][0] !== contour.at(-1)[0] ||
-          contour[0][1] !== contour.at(-1)[1])
-      ) {
-        contour.push(contour[0]);
-      }
-    }
-  }
-
-  if (contour.length > 0) contours.push(contour);
-  return contours;
-}
-
-function getBoundingBox(contours) {
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity;
-  for (const contour of contours) {
-    for (const [x, y] of contour) {
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-      minY = Math.min(minY, y);
-      maxY = Math.max(maxY, y);
-    }
-  }
-  return { minX, maxX, minY, maxY };
-}
-
-export const generateDXF = async (value, moduleSize, itemName) => {
-  const font = await opentype.load("/fonts/RobotoMono-Regular.ttf");
-  const fontSize = 1000;
-  const path = font.getPath(itemName, 0, 0, fontSize);
-  const contours = flattenContour(path);
-  const bbox = getBoundingBox(contours);
-
-  const offsetX = -bbox.minX;
-  const offsetY = -bbox.maxY;
-
-  let dxf = `0
+  let dxfHeader = `0
 SECTION
 2
 HEADER
@@ -137,34 +41,114 @@ ENDSEC
 0
 SECTION
 2
+TABLES
+0
+TABLE
+2
+STYLE
+70
+1
+0
+STYLE
+2
+StandardStyle
+3
+STANDARD
+40
+0
+41
+1
+50
+0
+71
+0
+42
+1
+73
+0
+0
+ENDTAB
+0
+ENDSEC
+0
+SECTION
+2
 ENTITIES
 `;
 
-  for (const contour of contours) {
-    dxf += `0
-LWPOLYLINE
+  let dxfEntities = `0
+TEXT
 8
 TEXT_LAYER
-90
-${contour.length}
-70
-1
-`;
-    for (const [x, y] of contour) {
-      dxf += `10
-${(x + offsetX).toFixed(3)}
+10
+${posX}
 20
-${(-(y + offsetY)).toFixed(3)}
+${posY}
+30
+0
+40
+${fontHeight}
+1
+${itemName}
+50
+0
+7
+StandardStyle
+72
+0
+73
+0
 `;
+
+  if (qrCodeData && qrSize > 0) {
+    for (let y = 0; y < qrSize; y++) {
+      for (let x = 0; x < qrSize; x++) {
+        if (qrCodeData[y][x]) {
+          const x1 = qrX + x * qrModuleSize;
+          const y1 = qrY + y * qrModuleSize;
+          const x2 = x1 + qrModuleSize;
+          const y2 = y1 + qrModuleSize;
+
+          dxfEntities += `0
+SOLID
+8
+QR_LAYER
+10
+${x1}
+20
+${y1}
+30
+0
+11
+${x2}
+21
+${y1}
+31
+0
+12
+${x1}
+22
+${y2}
+32
+0
+13
+${x2}
+23
+${y2}
+33
+0
+`;
+        }
+      }
     }
   }
 
-  dxf += `0
+  let dxfFooter = `0
 ENDSEC
 0
 EOF`;
 
-  return dxf;
+  return dxfHeader + dxfEntities + dxfFooter;
 };
 
 export default function Home() {
@@ -179,7 +163,60 @@ export default function Home() {
 
   const handleSave = async () => {
     for (const item of generatedItems) {
-      const dxfContent = await generateDXF(item, 1, item);
+      if (!item || typeof item !== "string") {
+        console.error(" SLS Invalid item value:", item);
+        continue;
+      }
+
+      let qrCodeData = null;
+      try {
+        qrCodeData = await new Promise((resolve, reject) => {
+          QRCode.toDataURL(item, { width: 100, margin: 1 }, (err, url) => {
+            if (err) return reject(err);
+
+            const img = new Image();
+            img.src = url;
+            img.onload = () => {
+              const canvas = document.createElement("canvas");
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext("2d");
+              ctx.drawImage(img, 0, 0);
+
+              const imageData = ctx.getImageData(
+                0,
+                0,
+                canvas.width,
+                canvas.height
+              );
+              const data = imageData.data;
+              const size = canvas.width;
+              const qrCodeMatrix = [];
+
+              for (let y = 0; y < size; y++) {
+                const row = [];
+                for (let x = 0; x < size; x++) {
+                  const idx = (y * size + x) * 4;
+                  const r = data[idx];
+                  const g = data[idx + 1];
+                  const b = data[idx + 2];
+                  row.push(r < 128 && g < 128 && b < 128);
+                }
+                qrCodeMatrix.push(row);
+              }
+
+              resolve(qrCodeMatrix);
+            };
+            img.onerror = () =>
+              reject(new Error("Failed to load QR code image"));
+          });
+        });
+      } catch (error) {
+        console.error("Failed to generate QR code for item:", item, error);
+        qrCodeData = null;
+      }
+
+      const dxfContent = await generateDXF(item, qrCodeData);
       const blob = new Blob([dxfContent], { type: "application/dxf" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
@@ -204,7 +241,6 @@ export default function Home() {
           </div>
         )}
       </div>
-      {/* Generated Items Section */}
       {generatedItems.length > 0 && (
         <div className="p-6 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-indigo-300 scrollbar-track-gray-100 pb-22">
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
@@ -229,7 +265,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* Action Buttons */}
       {generatedItems.length > 0 && (
         <div className="fixed bottom-0 left-0 w-full bg-white p-4 border-t shadow-md flex justify-end gap-3 z-10">
           <button
