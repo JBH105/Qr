@@ -5,13 +5,12 @@ import QrCodeGenerator from "./QrCodeGenerator/page";
 import { QRCodeCanvas } from "qrcode.react";
 import QRCode from "qrcode";
 import opentype from "opentype.js";
-import earcut from "earcut";
 
 export function quadraticToLines(
   startPoint,
   controlPoint,
   endPoint,
-  segments = 8
+  segments = 4
 ) {
   const points = [];
   for (let i = 1; i <= segments; i++) {
@@ -34,7 +33,7 @@ export function cubicToLines(
   controlPoint1,
   controlPoint2,
   endPoint,
-  segments = 8
+  segments = 4
 ) {
   const points = [];
   for (let i = 1; i <= segments; i++) {
@@ -64,7 +63,12 @@ export function isClockwise(path) {
   return sum > 0;
 }
 
-export const generateDXF = async (itemName, qrCodeData, fontFamily) => {
+export const generateDXF = async (
+  itemName,
+  qrCodeData,
+  fontFamily,
+  useTextEntity = false
+) => {
   const googleFontToTTF = {
     Roboto: "/fonts/Roboto-Regular.ttf",
     "Open Sans": "/fonts/OpenSans-Regular.ttf",
@@ -79,7 +83,11 @@ export const generateDXF = async (itemName, qrCodeData, fontFamily) => {
   };
 
   const fontFile = googleFontToTTF[fontFamily] || "/fonts/Roboto-Regular.ttf";
-  const font = await opentype.load(fontFile);
+  let font;
+  let scale = 1;
+  if (!useTextEntity) {
+    font = await opentype.load(fontFile);
+  }
 
   const containerWidth = 500;
   const containerHeight = 128;
@@ -87,121 +95,134 @@ export const generateDXF = async (itemName, qrCodeData, fontFamily) => {
   const qrModuleSize = 1.0;
   const gap = 25;
 
-  const path = font.getPath(itemName, 0, 0, fontSize * 10);
-  const paths = [];
-  let currentPath = [];
-  let isHole = false;
+  let scaledPathGroups = [];
+  let textWidth = 0;
+  let textX = 0;
+  let textY = 0;
 
-  path.commands.forEach((cmd) => {
-    switch (cmd.type) {
-      case "M":
-        if (currentPath.length > 0) {
-          paths.push({ points: currentPath, isHole });
-        }
-        currentPath = [[cmd.x, cmd.y]];
-        isHole = false;
-        break;
+  if (!useTextEntity) {
+    const path = font.getPath(itemName, 0, 0, fontSize * 10);
+    const paths = [];
+    let currentPath = [];
+    let isHole = false;
 
-      case "L":
-        currentPath.push([cmd.x, cmd.y]);
-        break;
-
-      case "Q":
-        const start = currentPath[currentPath.length - 1];
-        const segments = quadraticToLines(
-          start,
-          [cmd.x1, cmd.y1],
-          [cmd.x, cmd.y],
-          8
-        );
-        segments.forEach((segment) => currentPath.push(segment));
-        break;
-
-      case "C":
-        const startCubic = currentPath[currentPath.length - 1];
-        const segmentsCubic = cubicToLines(
-          startCubic,
-          [cmd.x1, cmd.y1],
-          [cmd.x2, cmd.y2],
-          [cmd.x, cmd.y],
-          8
-        );
-        segmentsCubic.forEach((segment) => currentPath.push(segment));
-        break;
-
-      case "Z":
-        if (currentPath.length > 0) {
-          currentPath.push([currentPath[0][0], currentPath[0][1]]);
-          isHole = isClockwise(currentPath);
-          paths.push({ points: currentPath, isHole });
-          currentPath = [];
-        }
-        break;
-    }
-  });
-
-  if (currentPath.length > 0) {
-    paths.push({ points: currentPath, isHole });
-  }
-
-  const cleanedPaths = paths.map((path) => ({
-    ...path,
-    points: path.points.filter((point, index) => {
-      return (
-        index === 0 ||
-        point[0] !== path.points[index - 1][0] ||
-        point[1] !== path.points[index - 1][1]
-      );
-    }),
-  }));
-
-  const outerPaths = cleanedPaths.filter((path) => !path.isHole);
-  const holes = cleanedPaths.filter((path) => path.isHole);
-
-  const pathGroups = outerPaths.map((outer) => {
-    const outerBounds = {
-      minX: Math.min(...outer.points.map((p) => p[0])),
-      minY: Math.min(...outer.points.map((p) => p[1])),
-      maxX: Math.max(...outer.points.map((p) => p[0])),
-      maxY: Math.max(...outer.points.map((p) => p[1])),
-    };
-
-    const associatedHoles = holes.filter((hole) => {
-      const holePoint = hole.points[0];
-      return (
-        holePoint[0] >= outerBounds.minX &&
-        holePoint[0] <= outerBounds.maxX &&
-        holePoint[1] >= outerBounds.minY &&
-        holePoint[1] <= outerBounds.maxY
-      );
+    path.commands.forEach((cmd) => {
+      switch (cmd.type) {
+        case "M":
+          if (currentPath.length > 0) {
+            paths.push({ points: currentPath, isHole });
+          }
+          currentPath = [[cmd.x, cmd.y]];
+          isHole = false;
+          break;
+        case "L":
+          currentPath.push([cmd.x, cmd.y]);
+          break;
+        case "Q":
+          const start = currentPath[currentPath.length - 1];
+          const segments = quadraticToLines(
+            start,
+            [cmd.x1, cmd.y1],
+            [cmd.x, cmd.y],
+            4
+          );
+          segments.forEach((segment) => currentPath.push(segment));
+          break;
+        case "C":
+          const startCubic = currentPath[currentPath.length - 1];
+          const segmentsCubic = cubicToLines(
+            startCubic,
+            [cmd.x1, cmd.y1],
+            [cmd.x2, cmd.y2],
+            [cmd.x, cmd.y],
+            4
+          );
+          segmentsCubic.forEach((segment) => currentPath.push(segment));
+          break;
+        case "Z":
+          if (currentPath.length > 0) {
+            currentPath.push([currentPath[0][0], currentPath[0][1]]);
+            isHole = isClockwise(currentPath);
+            paths.push({ points: currentPath, isHole });
+            currentPath = [];
+          }
+          break;
+      }
     });
 
-    return { outer: outer.points, holes: associatedHoles.map((h) => h.points) };
-  });
+    if (currentPath.length > 0) {
+      paths.push({ points: currentPath, isHole });
+    }
 
-  const allPoints = pathGroups.flatMap((group) => group.outer);
-  const bbox = {
-    minX: Math.min(...allPoints.map((p) => p[0])),
-    minY: Math.min(...allPoints.map((p) => p[1])),
-    maxX: Math.max(...allPoints.map((p) => p[0])),
-    maxY: Math.max(...allPoints.map((p) => p[1])),
-  };
+    const cleanedPaths = paths.map((path) => ({
+      ...path,
+      points: path.points.filter((point, index) => {
+        return (
+          index === 0 ||
+          point[0] !== path.points[index - 1][0] ||
+          point[1] !== path.points[index - 1][1]
+        );
+      }),
+    }));
 
-  const unitsPerEm = font.unitsPerEm;
-  const capHeight = font.tables.os2.sCapHeight || 0.7 * unitsPerEm;
-  const scale = fontSize / capHeight;
+    const outerPaths = cleanedPaths.filter((path) => !path.isHole);
+    const holes = cleanedPaths.filter((path) => path.isHole);
 
-  const scaledPathGroups = pathGroups.map((group) => ({
-    outer: group.outer.map(([x, y]) => [
-      (x - bbox.minX) * scale,
-      (y - bbox.minY) * scale,
-    ]),
-    holes: group.holes.map((hole) =>
-      hole.map(([x, y]) => [(x - bbox.minX) * scale, (y - bbox.minY) * scale])
-    ),
-  }));
+    const pathGroups = outerPaths.map((outer) => {
+      const outerBounds = {
+        minX: Math.min(...outer.points.map((p) => p[0])),
+        minY: Math.min(...outer.points.map((p) => p[1])),
+        maxX: Math.max(...outer.points.map((p) => p[0])),
+        maxY: Math.max(...outer.points.map((p) => p[1])),
+      };
 
-  const textWidth = (bbox.maxX - bbox.minX) * scale;
+      const associatedHoles = holes.filter((hole) => {
+        const holePoint = hole.points[0];
+        return (
+          holePoint[0] >= outerBounds.minX &&
+          holePoint[0] <= outerBounds.maxX &&
+          holePoint[1] >= outerBounds.minY &&
+          holePoint[1] <= outerBounds.maxY
+        );
+      });
+
+      return {
+        outer: outer.points,
+        holes: associatedHoles.map((h) => h.points),
+      };
+    });
+
+    const allPoints = pathGroups.flatMap((group) => group.outer);
+    const bbox = {
+      minX: Math.min(...allPoints.map((p) => p[0])),
+      minY: Math.min(...allPoints.map((p) => p[1])),
+      maxX: Math.max(...allPoints.map((p) => p[0])),
+      maxY: Math.max(...allPoints.map((p) => p[1])),
+    };
+
+    const unitsPerEm = font.unitsPerEm;
+    const capHeight = font.tables.os2.sCapHeight || 0.7 * unitsPerEm;
+    scale = fontSize / capHeight;
+
+    const textHeight = (bbox.maxY - bbox.minY) * scale;
+    const textCenterY = ((bbox.maxY + bbox.minY) / 2) * scale;
+
+    scaledPathGroups = pathGroups.map((group) => ({
+      outer: group.outer.map(([x, y]) => [
+        (x - bbox.minX) * scale,
+        (y - bbox.minY) * scale,
+      ]),
+      holes: group.holes.map((hole) =>
+        hole.map(([x, y]) => [(x - bbox.minX) * scale, (y - bbox.minY) * scale])
+      ),
+    }));
+
+    textWidth = (bbox.maxX - bbox.minX) * scale;
+    textY = containerHeight / 2 - textCenterY;
+  } else {
+    textWidth = itemName.length * fontSize * 0.6;
+    textY = containerHeight / 2 + fontSize * 0.2;
+  }
 
   const qrSize = qrCodeData ? qrCodeData.length : 0;
   const qrWidth = qrSize * qrModuleSize;
@@ -211,12 +232,10 @@ export const generateDXF = async (itemName, qrCodeData, fontFamily) => {
   const contentCenterX = containerWidth / 2;
   const contentLeftX = contentCenterX - totalContentWidth / 2;
 
-  const textX = contentLeftX;
+  textX = contentLeftX;
   const qrX = textX + textWidth + gap;
 
   const containerCenterY = containerHeight / 2;
-  const bboxCenterY = (bbox.maxY + bbox.minY) / 2;
-  const textY = containerCenterY + bboxCenterY * -scale;
   const qrY = containerCenterY - qrHeight / 2;
 
   let dxf = `0
@@ -226,7 +245,11 @@ HEADER
 9
 $ACADVER
 1
-AC1027
+AC1009
+9
+$DWGCODEPAGE
+3
+ANSI_1252
 0
 ENDSEC
 0
@@ -235,67 +258,68 @@ SECTION
 ENTITIES
 `;
 
-  for (const group of scaledPathGroups) {
-    if (group.outer.length < 3) continue;
-
-    const vertices = group.outer.flat();
-    const holeIndices = [];
-    let vertexCount = group.outer.length;
-
-    const holeVertices = [];
-    for (const hole of group.holes) {
-      if (hole.length < 3) continue;
-      holeIndices.push(vertexCount);
-      holeVertices.push(...hole.flat());
-      vertexCount += hole.length;
-    }
-
-    const allVertices = [...vertices, ...holeVertices];
-    const triangles = earcut(allVertices, holeIndices);
-
-    for (let i = 0; i < triangles.length; i += 3) {
-      const idx1 = triangles[i];
-      const idx2 = triangles[i + 1];
-      const idx3 = triangles[i + 2];
-
-      const x1 = allVertices[idx1 * 2] + textX;
-      const y1 = -(allVertices[idx1 * 2 + 1] - textY);
-      const x2 = allVertices[idx2 * 2] + textX;
-      const y2 = -(allVertices[idx2 * 2 + 1] - textY);
-      const x3 = allVertices[idx3 * 2] + textX;
-      const y3 = -(allVertices[idx3 * 2 + 1] - textY);
+  if (useTextEntity) {
+    dxf += `0
+TEXT
+8
+TEXT_LAYER
+10
+${textX.toFixed(3)}
+20
+${textY.toFixed(3)}
+30
+0
+40
+${fontSize.toFixed(3)}
+1
+${itemName}
+7
+txt
+`;
+  } else {
+    for (const group of scaledPathGroups) {
+      if (group.outer.length < 2) continue;
 
       dxf += `0
-SOLID
+LWPOLYLINE
 8
 TEXT_LAYER
 62
 0
-10
-${x1.toFixed(3)}
-20
-${y1.toFixed(3)}
-30
-0
-11
-${x2.toFixed(3)}
-21
-${y2.toFixed(3)}
-31
-0
-12
-${x3.toFixed(3)}
-22
-${y3.toFixed(3)}
-32
-0
-13
-${x3.toFixed(3)}
-23
-${y3.toFixed(3)}
-33
-0
+90
+${group.outer.length}
+70
+1
 `;
+      for (const [x, y] of group.outer) {
+        dxf += `10
+${(x + textX).toFixed(3)}
+20
+${-(y - textY).toFixed(3)}
+`;
+      }
+
+      for (const hole of group.holes) {
+        if (hole.length < 2) continue;
+        dxf += `0
+LWPOLYLINE
+8
+TEXT_LAYER
+62
+0
+90
+${hole.length}
+70
+1
+`;
+        for (const [x, y] of hole) {
+          dxf += `10
+${(x + textX).toFixed(3)}
+20
+${-(y - textY).toFixed(3)}
+`;
+        }
+      }
     }
   }
 
@@ -349,6 +373,7 @@ EOF`;
 
   return dxf;
 };
+
 export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [generatedItems, setGeneratedItems] = useState([]);
