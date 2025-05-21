@@ -2,111 +2,94 @@
 
 import { useState, useEffect } from "react";
 import QrCodeGenerator from "./QrCodeGenerator/page";
-import { QRCodeCanvas } from "qrcode.react";
 import QRCode from "qrcode";
 import opentype from "opentype.js";
+import Footer from "./components/footer";
+import {
+  cubicToLines,
+  isClockwise,
+  quadraticToLines,
+} from "./common/lib/utils/utils";
 
-export function quadraticToLines(
-  startPoint,
-  controlPoint,
-  endPoint,
-  segments = 4
-) {
-  const points = [];
-  for (let i = 1; i <= segments; i++) {
-    const t = i / segments;
-    const x =
-      (1 - t) * (1 - t) * startPoint[0] +
-      2 * (1 - t) * t * controlPoint[0] +
-      t * t * endPoint[0];
-    const y =
-      (1 - t) * (1 - t) * startPoint[1] +
-      2 * (1 - t) * t * controlPoint[1] +
-      t * t * endPoint[1];
-    points.push([x, y]);
-  }
-  return points;
-}
-
-export function cubicToLines(
-  startPoint,
-  controlPoint1,
-  controlPoint2,
-  endPoint,
-  segments = 4
-) {
-  const points = [];
-  for (let i = 1; i <= segments; i++) {
-    const t = i / segments;
-    const x =
-      Math.pow(1 - t, 3) * startPoint[0] +
-      3 * Math.pow(1 - t, 2) * t * controlPoint1[0] +
-      3 * (1 - t) * Math.pow(t, 2) * controlPoint2[0] +
-      Math.pow(t, 3) * endPoint[0];
-    const y =
-      Math.pow(1 - t, 3) * startPoint[1] +
-      3 * Math.pow(1 - t, 2) * t * controlPoint1[1] +
-      3 * (1 - t) * Math.pow(t, 2) * controlPoint2[1] +
-      Math.pow(t, 3) * endPoint[1];
-    points.push([x, y]);
-  }
-  return points;
-}
-
-export function isClockwise(path) {
-  let sum = 0;
-  for (let i = 0; i < path.length - 1; i++) {
-    const [x1, y1] = path[i];
-    const [x2, y2] = path[i + 1];
-    sum += (x2 - x1) * (y2 + y1);
-  }
-  return sum > 0;
-}
-
-export const generateDXF = async (
-  itemName,
-  qrCodeData,
-  fontFamily,
-  useTextEntity = false
-) => {
+export const generateDXF = async (item, qrCodeData, useTextEntity = false) => {
   const googleFontToTTF = {
-    Roboto: "/fonts/Roboto-Regular.ttf",
-    "Open Sans": "/fonts/OpenSans-Regular.ttf",
-    Lobster: "/fonts/Lobster-Regular.ttf",
-    Montserrat: "/fonts/Montserrat-Regular.ttf",
-    Arial: "/fonts/Arimo-Regular.ttf",
-    Poppins: "/fonts/Poppins-Regular.ttf",
-    Raleway: "/fonts/Raleway-Regular.ttf",
-    Ubuntu: "/fonts/Ubuntu-Regular.ttf",
-    Merriweather: "/fonts/Merriweather_48pt-Regular.ttf",
-    "PT Sans": "/fonts/PTSans-Regular.ttf",
+    Amerto: "/fonts/amerton-outline.ttf",
+    Roman: "/fonts/romans__.ttf",
   };
 
-  const fontFile = googleFontToTTF[fontFamily] || "/fonts/Roboto-Regular.ttf";
-  let font;
-  let scale = 1;
+  // Initialize variables
+  let amertoFont, romanFont;
+  let scaleAmerto = 1,
+    scaleRoman = 1;
+  let scaledSeriesPaths = [],
+    scaledHyphenPaths = [],
+    scaledSeriesNumberPaths = [];
+  let seriesPaths = [],
+    hyphenPaths = [],
+    seriesNumberPaths = [];
+  let seriesWidth = 0,
+    hyphenWidth = 0,
+    seriesNumberWidth = 0;
+  let seriesX = 0,
+    hyphenX = 0,
+    seriesNumberX = 100,
+    textY = 0;
+
+  const containerWidth = 500; // mm
+  const containerHeight = 128; // mm
+  const fontSize = 80; // Desired font size in mm
+  const qrModuleSize = 8.0; // mm
+  const seriesNumberGap = item?.gapBetweenTextAndQR
+    ? item?.gapBetweenTextAndQR
+    : 150;
+  let hyphenGapLeft = 0; // Single space before hyphen
+  let hyphenGapRight = 0; // Single space after hyphen
+
   if (!useTextEntity) {
-    font = await opentype.load(fontFile);
-  }
+    // Load fonts with better error handling
+    try {
+      console.log(
+        "Attempting to load Amerto font from:",
+        googleFontToTTF.Amerto
+      );
+      amertoFont = await opentype.load(googleFontToTTF.Amerto);
+      console.log("Amerto font loaded successfully");
+    } catch (error) {
+      console.error("Failed to load Amerto font:", error);
+      throw new Error(
+        `Failed to load Amerto font from ${googleFontToTTF.Amerto}. Please check the file path and server configuration.`
+      );
+    }
 
-  const containerWidth = 500;
-  const containerHeight = 128;
-  const fontSize = 80;
-  const qrModuleSize = 1.0;
-  const gap = 25;
+    try {
+      console.log("Attempting to load Roman font from:", googleFontToTTF.Roman);
+      romanFont = await opentype.load(googleFontToTTF.Roman);
+      console.log("Roman font loaded successfully");
+    } catch (error) {
+      console.error("Failed to load Roman font:", error);
+      throw new Error(
+        `Failed to load Roman font from ${googleFontToTTF.Roman}. Please check the file path and server configuration.`
+      );
+    }
 
-  let scaledPathGroups = [];
-  let textWidth = 0;
-  let textX = 0;
-  let textY = 0;
+    // Calculate space width for hyphen gaps
+    const spaceWidth =
+      romanFont.getAdvanceWidth(" ", fontSize * 10) *
+      (fontSize / romanFont.unitsPerEm);
+    hyphenGapLeft = spaceWidth; // Single space before hyphen
+    hyphenGapRight = spaceWidth; // Single space after hyphen
 
-  if (!useTextEntity) {
-    const path = font.getPath(itemName, 0, 0, fontSize * 10);
-    const paths = [];
+    // Process series name (Amerto font, 2-line outline)
     let currentPath = [];
+    let paths = [];
     let isHole = false;
-
-    path.commands.forEach((cmd) => {
+    const seriesPath = amertoFont.getPath(
+      item.series || "",
+      0,
+      0,
+      fontSize * 10
+    );
+    seriesPath.commands.forEach((cmd) => {
       switch (cmd.type) {
         case "M":
           if (currentPath.length > 0) {
@@ -154,7 +137,7 @@ export const generateDXF = async (
       paths.push({ points: currentPath, isHole });
     }
 
-    const cleanedPaths = paths.map((path) => ({
+    const cleanedSeriesPaths = paths.map((path) => ({
       ...path,
       points: path.points.filter((point, index) => {
         return (
@@ -165,18 +148,150 @@ export const generateDXF = async (
       }),
     }));
 
-    const outerPaths = cleanedPaths.filter((path) => !path.isHole);
-    const holes = cleanedPaths.filter((path) => path.isHole);
+    // Process hyphen (Roman font, 1-line outline)
+    paths = [];
+    currentPath = [];
+    isHole = false;
+    const hyphenPath = romanFont.getPath("-", 0, 0, fontSize * 10);
+    hyphenPath.commands.forEach((cmd) => {
+      switch (cmd.type) {
+        case "M":
+          if (currentPath.length > 0) {
+            paths.push({ points: currentPath, isHole });
+          }
+          currentPath = [[cmd.x, cmd.y]];
+          isHole = false;
+          break;
+        case "L":
+          currentPath.push([cmd.x, cmd.y]);
+          break;
+        case "Q":
+          const start = currentPath[currentPath.length - 1];
+          const segments = quadraticToLines(
+            start,
+            [cmd.x1, cmd.y1],
+            [cmd.x, cmd.y],
+            4
+          );
+          segments.forEach((segment) => currentPath.push(segment));
+          break;
+        case "C":
+          const startCubic = currentPath[currentPath.length - 1];
+          const segmentsCubic = cubicToLines(
+            startCubic,
+            [cmd.x1, cmd.y1],
+            [cmd.x2, cmd.y2],
+            [cmd.x, cmd.y],
+            4
+          );
+          segmentsCubic.forEach((segment) => currentPath.push(segment));
+          break;
+        case "Z":
+          if (currentPath.length > 0) {
+            currentPath.push([currentPath[0][0], currentPath[0][1]]);
+            isHole = isClockwise(currentPath);
+            paths.push({ points: currentPath, isHole });
+            currentPath = [];
+          }
+          break;
+      }
+    });
 
-    const pathGroups = outerPaths.map((outer) => {
+    if (currentPath.length > 0) {
+      paths.push({ points: currentPath, isHole });
+    }
+
+    const cleanedHyphenPaths = paths.map((path) => ({
+      ...path,
+      points: path.points.filter((point, index) => {
+        return (
+          index === 0 ||
+          point[0] !== path.points[index - 1][0] ||
+          point[1] !== path.points[index - 1][1]
+        );
+      }),
+    }));
+
+    // Process series number (Roman font, 1-line outline)
+    paths = [];
+    currentPath = [];
+    isHole = false;
+    const seriesNumberPath = romanFont.getPath(
+      item.seriesNumber || "",
+      0,
+      0,
+      fontSize * 10
+    );
+    seriesNumberPath.commands.forEach((cmd) => {
+      switch (cmd.type) {
+        case "M":
+          if (currentPath.length > 0) {
+            paths.push({ points: currentPath, isHole });
+          }
+          currentPath = [[cmd.x, cmd.y]];
+          isHole = false;
+          break;
+        case "L":
+          currentPath.push([cmd.x, cmd.y]);
+          break;
+        case "Q":
+          const start = currentPath[currentPath.length - 1];
+          const segments = quadraticToLines(
+            start,
+            [cmd.x1, cmd.y1],
+            [cmd.x, cmd.y],
+            4
+          );
+          segments.forEach((segment) => currentPath.push(segment));
+          break;
+        case "C":
+          const startCubic = currentPath[currentPath.length - 1];
+          const segmentsCubic = cubicToLines(
+            startCubic,
+            [cmd.x1, cmd.y1],
+            [cmd.x2, cmd.y2],
+            [cmd.x, cmd.y],
+            4
+          );
+          segmentsCubic.forEach((segment) => currentPath.push(segment));
+          break;
+        case "Z":
+          if (currentPath.length > 0) {
+            currentPath.push([currentPath[0][0], currentPath[0][1]]);
+            isHole = isClockwise(currentPath);
+            paths.push({ points: currentPath, isHole });
+            currentPath = [];
+          }
+          break;
+      }
+    });
+
+    if (currentPath.length > 0) {
+      paths.push({ points: currentPath, isHole });
+    }
+
+    const cleanedSeriesNumberPaths = paths.map((path) => ({
+      ...path,
+      points: path.points.filter((point, index) => {
+        return (
+          index === 0 ||
+          point[0] !== path.points[index - 1][0] ||
+          point[1] !== path.points[index - 1][1]
+        );
+      }),
+    }));
+
+    // Group paths for series
+    const seriesOuterPaths = cleanedSeriesPaths.filter((path) => !path.isHole);
+    const seriesHoles = cleanedSeriesPaths.filter((path) => path.isHole);
+    seriesPaths = seriesOuterPaths.map((outer) => {
       const outerBounds = {
         minX: Math.min(...outer.points.map((p) => p[0])),
         minY: Math.min(...outer.points.map((p) => p[1])),
         maxX: Math.max(...outer.points.map((p) => p[0])),
         maxY: Math.max(...outer.points.map((p) => p[1])),
       };
-
-      const associatedHoles = holes.filter((hole) => {
+      const associatedHoles = seriesHoles.filter((hole) => {
         const holePoint = hole.points[0];
         return (
           holePoint[0] >= outerBounds.minX &&
@@ -185,59 +300,218 @@ export const generateDXF = async (
           holePoint[1] <= outerBounds.maxY
         );
       });
-
       return {
         outer: outer.points,
         holes: associatedHoles.map((h) => h.points),
       };
     });
 
-    const allPoints = pathGroups.flatMap((group) => group.outer);
-    const bbox = {
-      minX: Math.min(...allPoints.map((p) => p[0])),
-      minY: Math.min(...allPoints.map((p) => p[1])),
-      maxX: Math.max(...allPoints.map((p) => p[0])),
-      maxY: Math.max(...allPoints.map((p) => p[1])),
-    };
+    // Group paths for hyphen
+    const hyphenOuterPaths = cleanedHyphenPaths.filter((path) => !path.isHole);
+    const hyphenHoles = cleanedHyphenPaths.filter((path) => path.isHole);
+    hyphenPaths = hyphenOuterPaths.map((outer) => {
+      const outerBounds = {
+        minX: Math.min(...outer.points.map((p) => p[0])),
+        minY: Math.min(...outer.points.map((p) => p[1])),
+        maxX: Math.max(...outer.points.map((p) => p[0])),
+        maxY: Math.max(...outer.points.map((p) => p[1])),
+      };
+      const associatedHoles = hyphenHoles.filter((hole) => {
+        const holePoint = hole.points[0];
+        return (
+          holePoint[0] >= outerBounds.minX &&
+          holePoint[0] <= outerBounds.maxX &&
+          holePoint[1] >= outerBounds.minY &&
+          holePoint[1] <= outerBounds.maxY
+        );
+      });
+      return {
+        outer: outer.points,
+        holes: associatedHoles.map((h) => h.points),
+      };
+    });
 
-    const unitsPerEm = font.unitsPerEm;
-    const capHeight = font.tables.os2.sCapHeight || 0.7 * unitsPerEm;
-    scale = fontSize / capHeight;
+    // Group paths for series number
+    const seriesNumberOuterPaths = cleanedSeriesNumberPaths.filter(
+      (path) => !path.isHole
+    );
+    const seriesNumberHoles = cleanedSeriesNumberPaths.filter(
+      (path) => path.isHole
+    );
+    seriesNumberPaths = seriesNumberOuterPaths.map((outer) => {
+      const outerBounds = {
+        minX: Math.min(...outer.points.map((p) => p[0])),
+        minY: Math.min(...outer.points.map((p) => p[1])),
+        maxX: Math.max(...outer.points.map((p) => p[0])),
+        maxY: Math.max(...outer.points.map((p) => p[1])),
+      };
+      const associatedHoles = seriesNumberHoles.filter((hole) => {
+        const holePoint = hole.points[0];
+        return (
+          holePoint[0] >= outerBounds.minX &&
+          holePoint[0] <= outerBounds.maxX &&
+          holePoint[1] >= outerBounds.minY &&
+          holePoint[1] <= outerBounds.maxY
+        );
+      });
+      return {
+        outer: outer.points,
+        holes: associatedHoles.map((h) => h.points),
+      };
+    });
 
-    const textHeight = (bbox.maxY - bbox.minY) * scale;
-    const textCenterY = ((bbox.maxY + bbox.minY) / 2) * scale;
+    // Calculate bounding boxes
+    const seriesPoints = seriesPaths.flatMap((group) => group.outer);
+    const seriesBbox =
+      seriesPoints.length > 0
+        ? {
+            minX: Math.min(...seriesPoints.map((p) => p[0])),
+            minY: Math.min(...seriesPoints.map((p) => p[1])),
+            maxX: Math.max(...seriesPoints.map((p) => p[0])),
+            maxY: Math.max(...seriesPoints.map((p) => p[1])),
+          }
+        : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
-    scaledPathGroups = pathGroups.map((group) => ({
+    const hyphenPoints = hyphenPaths.flatMap((group) => group.outer);
+    const hyphenBbox =
+      hyphenPoints.length > 0
+        ? {
+            minX: Math.min(...hyphenPoints.map((p) => p[0])),
+            minY: Math.min(...hyphenPoints.map((p) => p[1])),
+            maxX: Math.max(...hyphenPoints.map((p) => p[0])),
+            maxY: Math.max(...hyphenPoints.map((p) => p[1])),
+          }
+        : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
+    const seriesNumberPoints = seriesNumberPaths.flatMap(
+      (group) => group.outer
+    );
+    const seriesNumberBbox =
+      seriesNumberPoints.length > 0
+        ? {
+            minX: Math.min(...seriesNumberPoints.map((p) => p[0])),
+            minY: Math.min(...seriesNumberPoints.map((p) => p[1])),
+            maxX: Math.max(...seriesNumberPoints.map((p) => p[0])),
+            maxY: Math.max(...seriesNumberPoints.map((p) => p[1])),
+          }
+        : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
+    // Scale fonts to match desired font size
+    const amertoUnitsPerEm = amertoFont.unitsPerEm;
+    const amertoCapHeight =
+      amertoFont.tables.os2?.sCapHeight || 0.7 * amertoUnitsPerEm;
+    scaleAmerto = fontSize / amertoCapHeight;
+
+    const romanUnitsPerEm = romanFont.unitsPerEm;
+    const romanCapHeight =
+      romanFont.tables.os2?.sCapHeight || 0.7 * romanUnitsPerEm;
+    scaleRoman = fontSize / romanCapHeight;
+
+    // Scale paths
+    scaledSeriesPaths = seriesPaths.map((group) => ({
       outer: group.outer.map(([x, y]) => [
-        (x - bbox.minX) * scale,
-        (y - bbox.minY) * scale,
+        (x - seriesBbox.minX) * scaleAmerto,
+        (y - seriesBbox.minY) * scaleAmerto,
       ]),
       holes: group.holes.map((hole) =>
-        hole.map(([x, y]) => [(x - bbox.minX) * scale, (y - bbox.minY) * scale])
+        hole.map(([x, y]) => [
+          (x - seriesBbox.minX) * scaleAmerto,
+          (y - seriesBbox.minY) * scaleAmerto,
+        ])
       ),
     }));
 
-    textWidth = (bbox.maxX - bbox.minX) * scale;
-    textY = containerHeight / 2 - textCenterY;
+    scaledHyphenPaths = hyphenPaths.map((group) => ({
+      outer: group.outer.map(([x, y]) => [
+        (x - hyphenBbox.minX) * scaleRoman,
+        (y - hyphenBbox.minY) * scaleRoman,
+      ]),
+      holes: group.holes.map((hole) =>
+        hole.map(([x, y]) => [
+          (x - hyphenBbox.minX) * scaleRoman,
+          (y - hyphenBbox.minY) * scaleRoman,
+        ])
+      ),
+    }));
+
+    scaledSeriesNumberPaths = seriesNumberPaths.map((group) => ({
+      outer: group.outer.map(([x, y]) => [
+        (x - seriesNumberBbox.minX) * scaleRoman,
+        (y - seriesNumberBbox.minY) * scaleRoman,
+      ]),
+      holes: group.holes.map((hole) =>
+        hole.map(([x, y]) => [
+          (x - seriesNumberBbox.minX) * scaleRoman,
+          (y - seriesNumberBbox.minY) * scaleRoman,
+        ])
+      ),
+    }));
+
+    // Calculate text widths
+    seriesWidth =
+      seriesPoints.length > 0
+        ? (seriesBbox.maxX - seriesBbox.minX) * scaleAmerto
+        : 0;
+    hyphenWidth =
+      hyphenPoints.length > 0
+        ? (hyphenBbox.maxX - hyphenBbox.minX) * scaleRoman
+        : 0;
+    seriesNumberWidth =
+      seriesNumberPoints.length > 0
+        ? (seriesNumberBbox.maxX - seriesNumberBbox.minX) * scaleRoman
+        : 0;
+
+    // Align text vertically (center all text components)
+    const seriesHeight =
+      seriesPoints.length > 0
+        ? (seriesBbox.maxY - seriesBbox.minY) * scaleAmerto
+        : 0;
+    const hyphenHeight =
+      hyphenPoints.length > 0
+        ? (hyphenBbox.maxY - hyphenBbox.minY) * scaleRoman
+        : 0;
+    const seriesNumberHeight =
+      seriesNumberPoints.length > 0
+        ? (seriesNumberBbox.maxY - seriesNumberBbox.minY) * scaleRoman
+        : 0;
+    const maxTextHeight = Math.max(
+      seriesHeight,
+      hyphenHeight,
+      seriesNumberHeight
+    );
+    textY = containerHeight / 2 - maxTextHeight / 2;
   } else {
-    textWidth = itemName.length * fontSize * 0.6;
+    // Fallback for text entities
+    seriesWidth = (item.series || "").length * fontSize * 0.6;
+    hyphenWidth = 1 * fontSize * 0.6; // Approximate hyphen width
+    seriesNumberWidth = (item.seriesNumber || "").length * fontSize * 0.6;
+    hyphenGapLeft = fontSize * 0.3; // Approximate space width
+    hyphenGapRight = fontSize * 0.3; // Approximate space width
     textY = containerHeight / 2 + fontSize * 0.2;
   }
 
+  // Positioning
   const qrSize = qrCodeData ? qrCodeData.length : 0;
   const qrWidth = qrSize * qrModuleSize;
   const qrHeight = qrSize * qrModuleSize;
 
-  const totalContentWidth = textWidth + gap + qrWidth;
+  const totalTextWidth =
+    seriesWidth +
+    hyphenGapLeft +
+    hyphenWidth +
+    hyphenGapRight +
+    seriesNumberWidth;
+  const totalContentWidth = totalTextWidth + seriesNumberGap + qrWidth;
   const contentCenterX = containerWidth / 2;
   const contentLeftX = contentCenterX - totalContentWidth / 2;
 
-  textX = contentLeftX;
-  const qrX = textX + textWidth + gap;
+  seriesX = contentLeftX;
+  hyphenX = seriesX + seriesWidth + hyphenGapLeft;
+  seriesNumberX = hyphenX + hyphenWidth + hyphenGapRight;
+  const qrX = seriesNumberX + seriesNumberWidth + seriesNumberGap;
+  const qrY = containerHeight / 2 - qrHeight / 2;
 
-  const containerCenterY = containerHeight / 2;
-  const qrY = containerCenterY - qrHeight / 2;
-
+  // Generate DXF
   let dxf = `0
 SECTION
 2
@@ -259,12 +533,13 @@ ENTITIES
 `;
 
   if (useTextEntity) {
+    // Series name (Amerto)
     dxf += `0
 TEXT
 8
 TEXT_LAYER
 10
-${textX.toFixed(3)}
+${seriesX.toFixed(3)}
 20
 ${textY.toFixed(3)}
 30
@@ -272,14 +547,54 @@ ${textY.toFixed(3)}
 40
 ${fontSize.toFixed(3)}
 1
-${itemName}
+${item.series || ""}
 7
-txt
+Amerto
+`;
+
+    // Hyphen (Roman font)
+    dxf += `0
+TEXT
+8
+TEXT_LAYER
+10
+${hyphenX.toFixed(3)}
+20
+${textY.toFixed(3)}
+30
+0
+40
+${fontSize.toFixed(3)}
+1
+-
+7
+Roman
+`;
+
+    // Series number (Roman font)
+    dxf += `0
+TEXT
+8
+TEXT_LAYER
+10
+${seriesNumberX.toFixed(3)}
+20
+${textY.toFixed(3)}
+30
+0
+40
+${fontSize.toFixed(3)}
+1
+${item.seriesNumber || ""}
+7
+Roman
 `;
   } else {
-    for (const group of scaledPathGroups) {
+    // Series name paths (2-line outline)
+    const offset = 0.4; // Adjust this value for the thickness of the double line (in mm)
+    for (const group of scaledSeriesPaths) {
       if (group.outer.length < 2) continue;
-
+      // First outline
       dxf += `0
 LWPOLYLINE
 8
@@ -293,12 +608,94 @@ ${group.outer.length}
 `;
       for (const [x, y] of group.outer) {
         dxf += `10
-${(x + textX).toFixed(3)}
+${(x + seriesX).toFixed(3)}
 20
 ${-(y - textY).toFixed(3)}
 `;
       }
+      // Second outline (offset slightly for double-line effect)
+      dxf += `0
+LWPOLYLINE
+8
+TEXT_LAYER
+62
+0
+90
+${group.outer.length}
+70
+1
+`;
+      for (const [x, y] of group.outer) {
+        dxf += `10
+${(x + seriesX + offset).toFixed(3)}
+20
+${-(y - textY + offset).toFixed(3)}
+`;
+      }
+      for (const hole of group.holes) {
+        if (hole.length < 2) continue;
+        // First hole outline
+        dxf += `0
+LWPOLYLINE
+8
+TEXT_LAYER
+62
+0
+90
+${hole.length}
+70
+1
+`;
+        for (const [x, y] of hole) {
+          dxf += `10
+${(x + seriesX).toFixed(3)}
+20
+${-(y - textY).toFixed(3)}
+`;
+        }
+        // Second hole outline
+        dxf += `0
+LWPOLYLINE
+8
+TEXT_LAYER
+62
+0
+90
+${hole.length}
+70
+1
+`;
+        for (const [x, y] of hole) {
+          dxf += `10
+${(x + seriesX + offset).toFixed(3)}
+20
+${-(y - textY + offset).toFixed(3)}
+`;
+        }
+      }
+    }
 
+    // Hyphen paths (1-line outline)
+    for (const group of scaledHyphenPaths) {
+      if (group.outer.length < 2) continue;
+      dxf += `0
+LWPOLYLINE
+8
+TEXT_LAYER
+62
+0
+90
+${group.outer.length}
+70
+1
+`;
+      for (const [x, y] of group.outer) {
+        dxf += `10
+${(x + hyphenX).toFixed(3)}
+20
+${-(y - textY).toFixed(3)}
+`;
+      }
       for (const hole of group.holes) {
         if (hole.length < 2) continue;
         dxf += `0
@@ -314,7 +711,51 @@ ${hole.length}
 `;
         for (const [x, y] of hole) {
           dxf += `10
-${(x + textX).toFixed(3)}
+${(x + hyphenX).toFixed(3)}
+20
+${-(y - textY).toFixed(3)}
+`;
+        }
+      }
+    }
+
+    // Series number paths (1-line outline)
+    for (const group of scaledSeriesNumberPaths) {
+      if (group.outer.length < 2) continue;
+      dxf += `0
+LWPOLYLINE
+8
+TEXT_LAYER
+62
+0
+90
+${group.outer.length}
+70
+1
+`;
+      for (const [x, y] of group.outer) {
+        dxf += `10
+${(x + seriesNumberX).toFixed(3)}
+20
+${-(y - textY).toFixed(3)}
+`;
+      }
+      for (const hole of group.holes) {
+        if (hole.length < 2) continue;
+        dxf += `0
+LWPOLYLINE
+8
+TEXT_LAYER
+62
+0
+90
+${hole.length}
+70
+1
+`;
+        for (const [x, y] of hole) {
+          dxf += `10
+${(x + seriesNumberX).toFixed(3)}
 20
 ${-(y - textY).toFixed(3)}
 `;
@@ -323,43 +764,31 @@ ${-(y - textY).toFixed(3)}
     }
   }
 
+  // QR Code (Dotted Pattern)
   if (qrCodeData && qrSize > 0) {
+    const dotRadius = qrModuleSize * 0.3; // 0.3 mm for 1 mm module
     for (let y = 0; y < qrSize; y++) {
       for (let x = 0; x < qrSize; x++) {
         if (qrCodeData[y][x]) {
-          const x1 = qrX + x * qrModuleSize;
-          const y1 = qrY + y * qrModuleSize;
-          const x2 = x1 + qrModuleSize;
-          const y2 = y1 + qrModuleSize;
+          const centerX = qrX + x * qrModuleSize + qrModuleSize / 2;
+          console.log("🚀 ~ generateDXF ~ centerX:", centerX);
+          const centerY = qrY + y * qrModuleSize + qrModuleSize / 2;
+          console.log("🚀 ~ generateDXF ~ centerY:", centerY);
 
           dxf += `0
-SOLID
+CIRCLE
 8
 QR_LAYER
+62
+0
 10
-${x1.toFixed(3)}
+${centerX.toFixed(3)}
 20
-${y1.toFixed(3)}
+${-centerY.toFixed(3)}
 30
 0
-11
-${x2.toFixed(3)}
-21
-${y1.toFixed(3)}
-31
-0
-12
-${x1.toFixed(3)}
-22
-${y2.toFixed(3)}
-32
-0
-13
-${x2.toFixed(3)}
-23
-${y2.toFixed(3)}
-33
-0
+40
+${dotRadius.toFixed(3)}
 `;
         }
       }
@@ -375,25 +804,23 @@ EOF`;
 };
 
 export default function Home() {
+  // Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [generatedItems, setGeneratedItems] = useState([]);
-  const [fontFamily, setFontFamily] = useState("Roboto");
+  // Font
+  const [fontFamily, setFontFamily] = useState("Amerto");
   const [fontOptions, setFontOptions] = useState([]);
+  // Qr CodeGenerator States
+  const [series, setSeries] = useState("");
+  const [seriesNumber, setSeriesNumber] = useState("");
+  const [gapBetweenTextAndQR, setGapBetweenTextAndQR] = useState(150);
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  // Generated Items
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedItems, setGeneratedItems] = useState([]);
 
   useEffect(() => {
-    const dxfCompatibleFonts = [
-      "Roboto",
-      "Open Sans",
-      "Lobster",
-      "Montserrat",
-      "Arial",
-      "Poppins",
-      "Raleway",
-      "Ubuntu",
-      "Merriweather",
-      "PT Sans",
-    ];
-    setFontOptions(dxfCompatibleFonts);
+    setFontOptions(["Amerto", "Romans"]);
   }, []);
 
   useEffect(() => {
@@ -419,68 +846,88 @@ export default function Home() {
     setIsModalOpen(!isModalOpen);
   };
 
+  const generateItems = () => {
+    setIsGenerating(true);
+    const items = [];
+    const startNum = Math.max(0, parseInt(start) || 0);
+    const endNum = Math.max(0, parseInt(end) || 0);
+
+    if (startNum <= endNum && startNum >= 0) {
+      for (let i = startNum; i <= endNum; i++) {
+        items.push({
+          series: series,
+          seriesNumber: `${seriesNumber}${i}`,
+          display: `${series} - ${seriesNumber}${i}`,
+          gapBetweenTextAndQR,
+        });
+      }
+    }
+
+    setGeneratedItems(items);
+    setTimeout(() => setIsGenerating(false), 300);
+  };
+
   const handlePrint = () => window.print();
 
   const handleSave = async () => {
     for (const item of generatedItems) {
-      if (!item || typeof item !== "string") {
-        console.error("Invalid item value:", item);
-        continue;
-      }
-
       let qrCodeData = null;
       try {
         qrCodeData = await new Promise((resolve, reject) => {
-          QRCode.toDataURL(item, { width: 100, margin: 1 }, (err, url) => {
-            if (err) return reject(err);
+          QRCode.toDataURL(
+            item.display,
+            { width: 100, margin: 1 },
+            (err, url) => {
+              if (err) return reject(err);
 
-            const img = new Image();
-            img.src = url;
-            img.onload = () => {
-              const canvas = document.createElement("canvas");
-              canvas.width = img.width;
-              canvas.height = img.height;
-              const ctx = canvas.getContext("2d");
-              ctx.drawImage(img, 0, 0);
+              const img = new Image();
+              img.src = url;
+              img.onload = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0);
 
-              const imageData = ctx.getImageData(
-                0,
-                0,
-                canvas.width,
-                canvas.height
-              );
-              const data = imageData.data;
-              const size = canvas.width;
-              const qrCodeMatrix = [];
+                const imageData = ctx.getImageData(
+                  0,
+                  0,
+                  canvas.width,
+                  canvas.height
+                );
+                const data = imageData.data;
+                const size = canvas.width;
+                const qrCodeMatrix = [];
 
-              for (let y = 0; y < size; y++) {
-                const row = [];
-                for (let x = 0; x < size; x++) {
-                  const idx = (y * size + x) * 4;
-                  const r = data[idx];
-                  const g = data[idx + 1];
-                  const b = data[idx + 2];
-                  row.push(r < 128 && g < 128 && b < 128);
+                for (let y = 0; y < size; y++) {
+                  const row = [];
+                  for (let x = 0; x < size; x++) {
+                    const idx = (y * size + x) * 4;
+                    const r = data[idx];
+                    const g = data[idx + 1];
+                    const b = data[idx + 2];
+                    row.push(r < 128 && g < 128 && b < 128);
+                  }
+                  qrCodeMatrix.push(row);
                 }
-                qrCodeMatrix.push(row);
-              }
 
-              resolve(qrCodeMatrix);
-            };
-            img.onerror = () =>
-              reject(new Error("Failed to load QR code image"));
-          });
+                resolve(qrCodeMatrix);
+              };
+              img.onerror = () =>
+                reject(new Error("Failed to load QR code image"));
+            }
+          );
         });
       } catch (error) {
         console.error("Failed to generate QR code for item:", item, error);
         qrCodeData = null;
       }
 
-      const dxfContent = await generateDXF(item, qrCodeData, fontFamily);
+      const dxfContent = await generateDXF(item, qrCodeData);
       const blob = new Blob([dxfContent], { type: "application/dxf" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `${item}.dxf`;
+      link.download = `${item.display}.dxf`;
       link.click();
       URL.revokeObjectURL(link.href);
     }
@@ -491,12 +938,23 @@ export default function Home() {
       <div className="flex flex-col items-center justify-center">
         <QrCodeGenerator
           toggleModal={toggleModal}
-          setGeneratedItems={setGeneratedItems}
           fontOptions={fontOptions}
           fontFamily={fontFamily}
           setFontFamily={setFontFamily}
+          series={series}
+          setSeries={setSeries}
+          seriesNumber={seriesNumber}
+          setSeriesNumber={setSeriesNumber}
+          gapBetweenTextAndQR={gapBetweenTextAndQR}
+          setGapBetweenTextAndQR={setGapBetweenTextAndQR}
+          start={start}
+          setStart={setStart}
+          end={end}
+          setEnd={setEnd}
+          isGenerating={isGenerating}
+          generateItems={generateItems}
         />
-        {generatedItems.length <= 0 && (
+        {generatedItems?.length <= 0 && (
           <div className="flex items-center justify-center p-6">
             <p className="text-lg font-medium text-gray-700 mb-4">
               No QR Code Available
@@ -504,48 +962,12 @@ export default function Home() {
           </div>
         )}
       </div>
-      {generatedItems.length > 0 && (
-        <div className="p-6 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-indigo-300 scrollbar-track-gray-100 pb-22">
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-            {generatedItems.map((item, index) => (
-              <div
-                key={index}
-                className="group flex items-center p-4 bg-white border border-gray-300 rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1"
-              >
-                <span
-                  style={{ fontFamily }}
-                  className="text-black text-lg font-bold flex-1 break-words pr-1 leading-relaxed"
-                >
-                  {item}
-                </span>
-                <QRCodeCanvas
-                  value={item}
-                  size={100}
-                  className="rounded-md shadow-sm transition-transform duration-300 group-hover:scale-110"
-                  bgColor="#ffffff"
-                  fgColor="#000000"
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      {generatedItems.length > 0 && (
-        <div className="fixed bottom-0 left-0 w-full bg-white p-4 border-t shadow-md flex justify-end gap-3 z-10">
-          <button
-            onClick={handleSave}
-            className="px-6 py-2 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-lg hover:from-yellow-600 hover:to-amber-600 transition-all duration-200 transform hover:scale-105"
-          >
-            Save All
-          </button>
-          <button
-            onClick={handlePrint}
-            className="px-6 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-lg hover:from-purple-600 hover:to-indigo-600 transition-all duration-200 transform hover:scale-105"
-          >
-            Print All
-          </button>
-        </div>
-      )}
+      <Footer
+        fontFamily={fontFamily}
+        generatedItems={generatedItems}
+        handleSave={handleSave}
+        handlePrint={handlePrint}
+      />
     </div>
   );
 }

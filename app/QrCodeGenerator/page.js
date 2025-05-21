@@ -1,29 +1,24 @@
 "use client";
-import React, { useState } from "react";
 
-function QrCodeGenerator({ toggleModal, setGeneratedItems, fontOptions, fontFamily, setFontFamily }) {
-  const [prefix, setPrefix] = useState("");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-
-  const generateItems = () => {
-    setIsGenerating(true);
-    const items = [];
-    const startNum = Math.max(0, parseInt(start) || 0);
-    const endNum = Math.max(0, parseInt(end) || 0);
-
-    if (startNum <= endNum && startNum >= 0) {
-      for (let i = startNum; i <= endNum; i++) {
-        items.push(`${prefix}${i}`);
-      }
-    }
-    setGeneratedItems(items);
-    setTimeout(() => setIsGenerating(false), 300);
-  };
-
+function QrCodeGenerator({
+  toggleModal,
+  fontOptions,
+  fontFamily,
+  setFontFamily,
+  series,
+  setSeries,
+  seriesNumber,
+  setSeriesNumber,
+  gapBetweenTextAndQR,
+  setGapBetweenTextAndQR,
+  start,
+  setStart,
+  end,
+  setEnd,
+  isGenerating,
+  generateItems,
+}) {
   return (
-    // <div className="fixed inset-0 bg-gray-200 bg-opacity-50 flex items-center justify-center z-50 p-4">
     <div className="bg-white rounded-xl p-6 w-full max-h-[90vh] flex flex-col shadow-2xl">
       {/* Header */}
       <div className="flex justify-between items-center mb-6 border-b pb-4">
@@ -37,8 +32,10 @@ function QrCodeGenerator({ toggleModal, setGeneratedItems, fontOptions, fontFami
           ×
         </button>
       </div>
+
       {/* Input Section */}
       <div className="flex flex-col sm:flex-row items-end gap-4 mb-6">
+        {/* Font Selector */}
         <div className="flex-1 w-full">
           <label className="block text-gray-700 font-medium mb-2">
             Select Font
@@ -55,17 +52,51 @@ function QrCodeGenerator({ toggleModal, setGeneratedItems, fontOptions, fontFami
             ))}
           </select>
         </div>
+
+        {/* Series Field */}
         <div className="flex-1 w-full">
-          <label className="block text-gray-700 font-medium mb-2">Prefix</label>
+          <label className="block text-gray-700 font-medium mb-2">Series</label>
           <input
             type="text"
-            value={prefix}
-            onChange={(e) => setPrefix(e.target.value)}
+            value={series}
+            onChange={(e) => setSeries(e?.target?.value)}
             style={{ fontFamily }}
-            placeholder="Enter prefix (e.g., xyz)"
+            placeholder="Please enter the series"
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200 hover:border-indigo-400"
           />
         </div>
+
+        {/* Series Number Field */}
+        <div className="flex-1 w-full">
+          <label className="block text-gray-700 font-medium mb-2">
+            Series Number
+          </label>
+          <input
+            type="number"
+            value={seriesNumber}
+            onChange={(e) => setSeriesNumber(e?.target?.value)}
+            style={{ fontFamily }}
+            placeholder="Please enter the series number"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200 hover:border-indigo-400"
+          />
+        </div>
+
+        {/* Gap Betwwen Text and QR Field */}
+        <div className="flex-1 w-full">
+          <label className="block text-gray-700 font-medium mb-2">
+            Gap between Series Text and QR Code (µm)
+          </label>
+          <input
+            type="number"
+            value={gapBetweenTextAndQR}
+            onChange={(e) => setGapBetweenTextAndQR(parseInt(e?.target?.value))}
+            placeholder="e.g., 150"
+            min="0"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200 hover:border-indigo-400"
+          />
+        </div>
+
+        {/* Start/End */}
         <div className="flex-1 flex gap-4 w-full">
           <div className="flex-1">
             <label className="block text-gray-700 font-medium mb-2">
@@ -74,8 +105,8 @@ function QrCodeGenerator({ toggleModal, setGeneratedItems, fontOptions, fontFami
             <input
               type="number"
               value={start}
-              onChange={(e) => setStart(e.target.value)}
-              placeholder="e.g., 21"
+              onChange={(e) => setStart(e?.target?.value)}
+              placeholder="e.g., 1"
               min="0"
               style={{ fontFamily }}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200 hover:border-indigo-400"
@@ -86,14 +117,16 @@ function QrCodeGenerator({ toggleModal, setGeneratedItems, fontOptions, fontFami
             <input
               type="number"
               value={end}
-              onChange={(e) => setEnd(e.target.value)}
-              placeholder="e.g., 30"
+              onChange={(e) => setEnd(e?.target?.value)}
+              placeholder="e.g., 10"
               min="0"
               style={{ fontFamily }}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200 hover:border-indigo-400"
             />
           </div>
         </div>
+
+        {/* Generate Button */}
         <button
           onClick={generateItems}
           disabled={isGenerating}
@@ -103,7 +136,6 @@ function QrCodeGenerator({ toggleModal, setGeneratedItems, fontOptions, fontFami
         </button>
       </div>
     </div>
-    // </div>
   );
 }
 
